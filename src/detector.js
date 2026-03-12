@@ -6,7 +6,7 @@
  * 注意: settings.json は読み取り専用。書き込みは一切しない。
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -18,15 +18,11 @@ const SKILLS_DIR = join(homedir(), '.claude', 'skills');
  * @returns {string[]} MCPサーバー名の配列
  */
 export function detectMcpServers() {
-  if (!existsSync(SETTINGS_PATH)) {
-    return [];
-  }
-
   let raw;
   try {
     raw = readFileSync(SETTINGS_PATH, 'utf-8');
   } catch (err) {
-    // 読み取りエラーは警告にとどめる（ツールの動作は継続）
+    if (err.code === 'ENOENT') return [];
     process.stderr.write(`[detector] settings.json の読み取りに失敗しました: ${err.message}\n`);
     return [];
   }
@@ -53,31 +49,20 @@ export function detectMcpServers() {
  * @returns {string[]} スキル名の配列
  */
 export function detectSkills() {
-  if (!existsSync(SKILLS_DIR)) {
-    return [];
-  }
-
   let entries;
   try {
-    entries = readdirSync(SKILLS_DIR);
+    entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   } catch (err) {
+    if (err.code === 'ENOENT') return [];
     process.stderr.write(`[detector] skills/ の読み取りに失敗しました: ${err.message}\n`);
     return [];
   }
 
   const skills = [];
   for (const entry of entries) {
-    // _archive など _ で始まるディレクトリは除外
-    if (entry.startsWith('_')) continue;
-
-    const fullPath = join(SKILLS_DIR, entry);
-    try {
-      const stat = statSync(fullPath);
-      if (stat.isDirectory()) {
-        skills.push(entry);
-      }
-    } catch {
-      // stat に失敗したエントリはスキップ
+    if (entry.name.startsWith('_')) continue;
+    if (entry.isDirectory()) {
+      skills.push(entry.name);
     }
   }
 

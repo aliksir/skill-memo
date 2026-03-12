@@ -134,14 +134,17 @@ export function formatDetail(key, entry) {
  * @returns {string}
  */
 export function formatSummary(entries) {
-  const all = Object.values(entries);
-  const mcpCount = all.filter(e => e.type === 'mcp').length;
-  const skillCount = all.filter(e => e.type === 'skill').length;
-  const autoCount = all.filter(e => e.source === 'auto').length;
-  const manualCount = all.filter(e => e.source === 'manual').length;
+  const counts = Object.values(entries).reduce((acc, e) => {
+    acc.total++;
+    if (e.type === 'mcp') acc.mcp++;
+    if (e.type === 'skill') acc.skill++;
+    if (e.source === 'auto') acc.auto++;
+    if (e.source === 'manual') acc.manual++;
+    return acc;
+  }, { total: 0, mcp: 0, skill: 0, auto: 0, manual: 0 });
 
   return [
-    `合計: ${all.length}件 (MCP: ${mcpCount}, スキル: ${skillCount})`,
-    `検出元: 自動=${autoCount}, 手動=${manualCount}`,
+    `合計: ${counts.total}件 (MCP: ${counts.mcp}, スキル: ${counts.skill})`,
+    `検出元: 自動=${counts.auto}, 手動=${counts.manual}`,
   ].join('\n');
 }

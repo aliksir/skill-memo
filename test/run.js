@@ -1,18 +1,47 @@
 /**
  * test/run.js — skill-memo テストスイート
- * assert重視。print文のみのテストは不可。
+ * assert重視。本物の store.js を環境変数でパス差し替えて使う。
  * 実行: node test/run.js
  */
 
 import assert from 'assert/strict';
-import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-// テスト用の一時ストアパスを使うためにモジュールを直接テストする
-// store.js のロジックを独立して検証するため、一時ファイルを使う
+// テスト用の一時ストアパスを環境変数で設定（store.js のインポート前に設定）
+const TMP_STORE = join(tmpdir(), `skill-memo-test-${Date.now()}.json`);
+process.env.SKILL_MEMO_STORE_PATH = TMP_STORE;
 
-// ---- ユーティリティ ----
+// store.js（環境変数でパスが差し替わっている）
+import {
+  loadStore,
+  saveStore,
+  makeKey,
+  listEntries,
+  getEntry,
+  addEntry,
+  updateMemo,
+  removeEntry,
+  syncEntries,
+  getStorePath,
+} from '../src/store.js';
+
+// display.js
+import {
+  formatTable,
+  formatDetail,
+  formatSummary,
+} from '../src/display.js';
+
+// detector.js
+import {
+  detectMcpServers,
+  detectSkills,
+  buildDetectedEntries,
+} from '../src/detector.js';
+
+// ---- テストユーティリティ ----
 
 let passCount = 0;
 let failCount = 0;
@@ -30,99 +59,14 @@ function test(name, fn) {
   }
 }
 
-async function testAsync(name, fn) {
-  try {
-    await fn();
-    passCount++;
-    process.stdout.write(`  PASS: ${name}\n`);
-  } catch (err) {
-    failCount++;
-    failures.push({ name, err });
-    process.stdout.write(`  FAIL: ${name}\n       ${err.message}\n`);
-  }
-}
-
-// ---- ストアの一時パスを切り替えるためのヘルパー ----
-
-const ORIG_ENV = process.env.SKILL_MEMO_STORE_PATH;
-const TMP_STORE = join(tmpdir(), `skill-memo-test-${Date.now()}.json`);
-
-function cleanup() {
+function resetStore() {
   if (existsSync(TMP_STORE)) {
     try { unlinkSync(TMP_STORE); } catch { /* ignore */ }
   }
 }
 
-// store.js は homedir() を使うため、テスト用に環境変数で差し替えるのが難しい。
-// そのため、store.js のロジックを部分的に直接インポートし、
-// 一時ファイルを明示的に指定して検証する関数を作る。
-
-import {
-  makeKey,
-} from '../src/store.js';
-
-// display.js のユニットテスト
-import {
-  formatTable,
-  formatDetail,
-  formatSummary,
-} from '../src/display.js';
-
-// detector.js のユニットテスト
-import {
-  detectMcpServers,
-  detectSkills,
-  buildDetectedEntries,
-} from '../src/detector.js';
-
-import { readFileSync } from 'fs';
-
-function createTempStore(path) {
-  const CURRENT_VERSION = 1;
-
-  function load() {
-    if (!existsSync(path)) return { version: CURRENT_VERSION, entries: {} };
-    return JSON.parse(readFileSync(path, 'utf-8'));
-  }
-  function save(store) {
-    writeFileSync(path, JSON.stringify(store, null, 2), 'utf-8');
-  }
-  function add(type, name, source, memo = '') {
-    if (type !== 'mcp' && type !== 'skill') throw new Error(`invalid type: ${type}`);
-    if (!name) throw new Error('name required');
-    if (source !== 'auto' && source !== 'manual') throw new Error(`invalid source: ${source}`);
-    const store = load();
-    const key = `${type}:${name}`;
-    const now = new Date().toISOString();
-    store.entries[key] = {
-      type, name, source, memo,
-      detectedAt: store.entries[key]?.detectedAt ?? now,
-      updatedAt: now,
-    };
-    save(store);
-    return store.entries[key];
-  }
-  function updateMemo(key, memo) {
-    const store = load();
-    if (!store.entries[key]) throw new Error(`not found: ${key}`);
-    store.entries[key].memo = memo;
-    store.entries[key].updatedAt = new Date().toISOString();
-    save(store);
-    return store.entries[key];
-  }
-  function remove(key) {
-    const store = load();
-    if (!store.entries[key]) throw new Error(`not found: ${key}`);
-    const removed = store.entries[key];
-    delete store.entries[key];
-    save(store);
-    return removed;
-  }
-  function list() { return load().entries; }
-  function get(key) { return load().entries[key] ?? null; }
-
-  return { load, save, add, updateMemo, remove, list, get };
-}
+// テスト終了時にクリーンアップ
+process.on('exit', resetStore);
 
 // ---- テスト開始 ----
 
@@ -140,113 +84,142 @@ test('skill:name の形式でキーを生成する', () => {
 // -------------------- ストア CRUD --------------------
 console.log('\n[store CRUD — 一時ファイル使用]');
 
-{
-  const STORE = join(tmpdir(), `skill-memo-crud-${Date.now()}.json`);
-  const store = createTempStore(STORE);
+resetStore(); // 各セクション前にリセット
 
-  // 後始末
-  process.on('exit', () => { if (existsSync(STORE)) unlinkSync(STORE); });
+test('空ストアはentriesが空オブジェクト', () => {
+  const data = loadStore();
+  assert.deepEqual(data.entries, {});
+  assert.equal(data.version, 1);
+});
 
-  test('空ストアはentriesが空オブジェクト', () => {
-    const data = store.load();
-    assert.deepEqual(data.entries, {});
-    assert.equal(data.version, 1);
-  });
+test('ストアパスが環境変数で差し替わっている', () => {
+  assert.equal(getStorePath(), TMP_STORE);
+});
 
-  test('エントリを追加できる', () => {
-    const entry = store.add('mcp', 'memory', 'auto', 'テストメモ');
-    assert.equal(entry.type, 'mcp');
-    assert.equal(entry.name, 'memory');
-    assert.equal(entry.source, 'auto');
-    assert.equal(entry.memo, 'テストメモ');
-    assert.ok(entry.detectedAt);
-    assert.ok(entry.updatedAt);
-  });
+test('エントリを追加できる', () => {
+  const entry = addEntry('mcp', 'memory', 'auto', 'テストメモ');
+  assert.equal(entry.type, 'mcp');
+  assert.equal(entry.name, 'memory');
+  assert.equal(entry.source, 'auto');
+  assert.equal(entry.memo, 'テストメモ');
+  assert.ok(entry.detectedAt);
+  assert.ok(entry.updatedAt);
+});
 
-  test('追加したエントリを取得できる', () => {
-    const entry = store.get('mcp:memory');
-    assert.ok(entry !== null);
-    assert.equal(entry.name, 'memory');
-  });
+test('追加したエントリを取得できる', () => {
+  const entry = getEntry('mcp:memory');
+  assert.ok(entry !== null);
+  assert.equal(entry.name, 'memory');
+});
 
-  test('存在しないキーはnullを返す', () => {
-    const entry = store.get('mcp:nonexistent');
-    assert.equal(entry, null);
-  });
+test('存在しないキーはnullを返す', () => {
+  const entry = getEntry('mcp:nonexistent');
+  assert.equal(entry, null);
+});
 
-  test('メモを更新できる', () => {
-    store.add('skill', 'x-post', 'manual', '元メモ');
-    const updated = store.updateMemo('skill:x-post', '新しいメモ');
-    assert.equal(updated.memo, '新しいメモ');
-  });
+test('メモを更新できる', () => {
+  addEntry('skill', 'x-post', 'manual', '元メモ');
+  const updated = updateMemo('skill:x-post', '新しいメモ');
+  assert.equal(updated.memo, '新しいメモ');
+});
 
-  test('存在しないキーのメモ更新はエラー', () => {
-    assert.throws(
-      () => store.updateMemo('skill:ghost', 'メモ'),
-      /not found/
-    );
-  });
+test('存在しないキーのメモ更新はエラー', () => {
+  assert.throws(
+    () => updateMemo('skill:ghost', 'メモ'),
+    /エントリが見つかりません/
+  );
+});
 
-  test('エントリを削除できる', () => {
-    store.add('skill', 'to-delete', 'manual', '');
-    const removed = store.remove('skill:to-delete');
-    assert.equal(removed.name, 'to-delete');
-    assert.equal(store.get('skill:to-delete'), null);
-  });
+test('エントリを削除できる', () => {
+  addEntry('skill', 'to-delete', 'manual', '');
+  const removed = removeEntry('skill:to-delete');
+  assert.equal(removed.name, 'to-delete');
+  assert.equal(getEntry('skill:to-delete'), null);
+});
 
-  test('存在しないキーの削除はエラー', () => {
-    assert.throws(
-      () => store.remove('skill:ghost'),
-      /not found/
-    );
-  });
+test('存在しないキーの削除はエラー', () => {
+  assert.throws(
+    () => removeEntry('skill:ghost'),
+    /エントリが見つかりません/
+  );
+});
 
-  test('不正なtypeはエラー', () => {
-    assert.throws(
-      () => store.add('invalid', 'test', 'auto'),
-      /invalid type/
-    );
-  });
+test('不正なtypeはエラー', () => {
+  assert.throws(
+    () => addEntry('invalid', 'test', 'auto'),
+    /typeは 'mcp' または 'skill'/
+  );
+});
 
-  test('不正なsourceはエラー', () => {
-    assert.throws(
-      () => store.add('mcp', 'test', 'unknown'),
-      /invalid source/
-    );
-  });
+test('不正なsourceはエラー', () => {
+  assert.throws(
+    () => addEntry('mcp', 'test', 'unknown'),
+    /sourceは 'auto' または 'manual'/
+  );
+});
 
-  test('nameが空のときエラー', () => {
-    assert.throws(
-      () => store.add('mcp', '', 'auto'),
-      /name required/
-    );
-  });
+test('nameが空のときエラー', () => {
+  assert.throws(
+    () => addEntry('mcp', '', 'auto'),
+    /空でない文字列/
+  );
+});
 
-  test('追加で同一キーは上書きされる（detectedAtは保持）', () => {
-    store.add('mcp', 'overlap', 'auto', '初回');
-    const first = store.get('mcp:overlap');
-    // 少し待ってから再追加
-    store.add('mcp', 'overlap', 'manual', '2回目');
-    const second = store.get('mcp:overlap');
-    assert.equal(second.memo, '2回目');
-    assert.equal(second.detectedAt, first.detectedAt); // detectedAt は保持
-  });
+test('追加で同一キーは上書きされる（detectedAtは保持）', () => {
+  addEntry('mcp', 'overlap', 'auto', '初回');
+  const first = getEntry('mcp:overlap');
+  addEntry('mcp', 'overlap', 'manual', '2回目');
+  const second = getEntry('mcp:overlap');
+  assert.equal(second.memo, '2回目');
+  assert.equal(second.detectedAt, first.detectedAt);
+});
 
-  test('list() で全エントリを取得できる', () => {
-    const entries = store.list();
-    assert.ok(typeof entries === 'object');
-    // 現在追加済みのエントリが存在する
-    assert.ok('mcp:memory' in entries);
-  });
+test('list() で全エントリを取得できる', () => {
+  const entries = listEntries();
+  assert.ok(typeof entries === 'object');
+  assert.ok('mcp:memory' in entries);
+});
 
-  test('永続化: 保存後に再ロードしても同じデータ', () => {
-    store.add('skill', 'persist-test', 'auto', '永続化確認');
-    const store2 = createTempStore(STORE); // 同じパスで別インスタンス
-    const entry = store2.get('skill:persist-test');
-    assert.ok(entry !== null);
-    assert.equal(entry.memo, '永続化確認');
-  });
-}
+test('永続化: 保存後に再ロードしても同じデータ', () => {
+  addEntry('skill', 'persist-test', 'auto', '永続化確認');
+  // loadStore を直接呼び出して再読み込みをシミュレート
+  const store = loadStore();
+  const entry = store.entries['skill:persist-test'];
+  assert.ok(entry !== null);
+  assert.equal(entry.memo, '永続化確認');
+});
+
+// -------------------- syncEntries --------------------
+console.log('\n[syncEntries — バルク追加]');
+
+resetStore();
+
+test('syncEntries: 新規エントリをバルク追加できる', () => {
+  const { added, skipped } = syncEntries([
+    { type: 'mcp', name: 'server1', source: 'auto' },
+    { type: 'mcp', name: 'server2', source: 'auto' },
+    { type: 'skill', name: 'skill1', source: 'auto' },
+  ]);
+  assert.equal(added, 3);
+  assert.equal(skipped, 0);
+  assert.ok(getEntry('mcp:server1') !== null);
+  assert.ok(getEntry('skill:skill1') !== null);
+});
+
+test('syncEntries: 既存エントリはスキップする', () => {
+  const { added, skipped } = syncEntries([
+    { type: 'mcp', name: 'server1', source: 'auto' }, // 既存
+    { type: 'skill', name: 'new-skill', source: 'auto' }, // 新規
+  ]);
+  assert.equal(added, 1);
+  assert.equal(skipped, 1);
+});
+
+test('syncEntries: 空配列では書き込みしない', () => {
+  const { added, skipped } = syncEntries([]);
+  assert.equal(added, 0);
+  assert.equal(skipped, 0);
+});
 
 // -------------------- display.js --------------------
 console.log('\n[display.js]');
@@ -338,17 +311,14 @@ test('buildDetectedEntries: 空の場合は空配列', () => {
   assert.deepEqual(entries, []);
 });
 
-test('detectMcpServers: settings.json が存在しない場合は空配列', () => {
-  // テスト環境で settings.json が存在する場合はスキップしない
-  // 存在する場合は配列を返す（型チェックのみ）
+test('detectMcpServers: 配列を返す', () => {
   const result = detectMcpServers();
   assert.ok(Array.isArray(result));
 });
 
-test('detectSkills: skills/ が存在する場合は配列を返す', () => {
+test('detectSkills: 配列を返す（_archiveは除外）', () => {
   const result = detectSkills();
   assert.ok(Array.isArray(result));
-  // _archive は含まれない
   assert.ok(!result.includes('_archive'));
 });
 
@@ -361,7 +331,6 @@ test('長いメモは truncate されてテーブルに収まる', () => {
     'skill:long': { type: 'skill', name: 'long', source: 'auto', memo: longMemo, detectedAt: '', updatedAt: '' }
   };
   const result = formatTable(entries);
-  // テーブルに収まっていること（行が異常に長くない）
   const lines = result.split('\n');
   for (const line of lines) {
     assert.ok(line.length <= 200, `行が長すぎる: ${line.length}文字`);
@@ -377,7 +346,6 @@ test('キーに特殊文字を含む場合もテーブル表示できる', () =>
 });
 
 test('makeKey: nameに:を含む場合でもキーが生成される', () => {
-  // 制約なし（keyは文字列結合のみ）
   const key = makeKey('mcp', 'foo:bar');
   assert.equal(key, 'mcp:foo:bar');
 });

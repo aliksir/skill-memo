@@ -18,6 +18,7 @@ import {
   addEntry,
   updateMemo,
   removeEntry,
+  syncEntries,
   makeKey,
   getStorePath,
 } from '../src/store.js';
@@ -112,17 +113,13 @@ function cmdAdd(args) {
     process.exit(1);
   }
 
-  if (type !== 'mcp' && type !== 'skill') {
-    console.error(`エラー: typeは 'mcp' または 'skill' を指定してください`);
-    process.exit(1);
-  }
-
   const memo = opts['memo'] ?? '';
 
   try {
     const entry = addEntry(type, name, 'manual', memo);
-    console.log(`追加しました: ${makeKey(type, name)}`);
-    console.log(formatDetail(makeKey(type, name), entry));
+    const key = makeKey(type, name);
+    console.log(`追加しました: ${key}`);
+    console.log(formatDetail(key, entry));
   } catch (err) {
     console.error(`エラー: ${err.message}`);
     process.exit(1);
@@ -132,12 +129,13 @@ function cmdAdd(args) {
 function cmdMemo(args) {
   const { positional } = parseArgs(args);
   const [key, ...memoParts] = positional;
-  const memo = memoParts.join(' ');
 
-  if (!key || memo === undefined) {
+  if (!key || memoParts.length === 0) {
     console.error('エラー: skill-memo memo <key> <text>');
     process.exit(1);
   }
+
+  const memo = memoParts.join(' ');
 
   try {
     const entry = updateMemo(key, memo);
@@ -169,22 +167,8 @@ function cmdRemove(args) {
 
 function cmdSync() {
   const detected = detectAll();
-  const entries = listEntries();
-  let added = 0;
-  let skipped = 0;
-
-  for (const { type, name, source, detectedAt } of detected) {
-    const key = makeKey(type, name);
-    if (entries[key]) {
-      skipped++;
-      continue;
-    }
-    addEntry(type, name, source, '');
-    console.log(`  追加: ${key}`);
-    added++;
-  }
-
-  console.log(`\n同期完了: 追加=${added}, スキップ(既存)=${skipped}`);
+  const { added, skipped } = syncEntries(detected);
+  console.log(`同期完了: 追加=${added}, スキップ(既存)=${skipped}`);
 }
 
 function cmdPath() {

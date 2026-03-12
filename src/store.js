@@ -4,12 +4,16 @@
  * スキーマバージョン管理あり（migration対応）
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 
 const CURRENT_VERSION = 1;
-const STORE_PATH = join(homedir(), '.claude', 'skill-catalog.json');
+const DEFAULT_STORE_PATH = join(homedir(), '.claude', 'skill-catalog.json');
+
+function storePath() {
+  return process.env.SKILL_MEMO_STORE_PATH || DEFAULT_STORE_PATH;
+}
 
 /**
  * 空のストアオブジェクトを返す
@@ -38,14 +42,11 @@ function migrate(data) {
  * 存在しない場合は空ストアを返す
  */
 export function loadStore() {
-  if (!existsSync(STORE_PATH)) {
-    return emptyStore();
-  }
-
   let raw;
   try {
-    raw = readFileSync(STORE_PATH, 'utf-8');
+    raw = readFileSync(storePath(), 'utf-8');
   } catch (err) {
+    if (err.code === 'ENOENT') return emptyStore();
     throw new Error(`ストアファイルの読み込みに失敗しました: ${err.message}`);
   }
 
@@ -63,13 +64,11 @@ export function loadStore() {
  * ストアファイルに書き込む
  */
 export function saveStore(store) {
-  const dir = dirname(STORE_PATH);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  const dir = dirname(storePath());
+  mkdirSync(dir, { recursive: true });
 
   try {
-    writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), 'utf-8');
+    writeFileSync(storePath(), JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
     throw new Error(`ストアファイルの書き込みに失敗しました: ${err.message}`);
   }
@@ -180,8 +179,37 @@ export function removeEntry(key) {
 }
 
 /**
+ * 複数エントリを一括追加する（sync用。既存エントリはスキップ）
+ * @param {{ type: string, name: string, source: string }[]} newEntries
+ * @returns {{ added: number, skipped: number }}
+ */
+export function syncEntries(newEntries) {
+  const store = loadStore();
+  const now = new Date().toISOString();
+  let added = 0;
+  let skipped = 0;
+
+  for (const { type, name, source } of newEntries) {
+    const key = makeKey(type, name);
+    if (store.entries[key]) {
+      skipped++;
+      continue;
+    }
+    store.entries[key] = {
+      type, name, source, memo: '',
+      detectedAt: now,
+      updatedAt: now,
+    };
+    added++;
+  }
+
+  if (added > 0) saveStore(store);
+  return { added, skipped };
+}
+
+/**
  * ストアのパスを返す（テスト・デバッグ用）
  */
 export function getStorePath() {
-  return STORE_PATH;
+  return storePath();
 }
