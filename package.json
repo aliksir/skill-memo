@@ -1,0 +1,17 @@
+{
+  "name": "skill-memo",
+  "version": "1.0.0",
+  "description": "Claude Code スキル・MCPサーバーのカタログ+メモツール",
+  "type": "module",
+  "bin": {
+    "skill-memo": "./bin/skill-memo.js"
+  },
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "keywords": ["claude", "mcp", "skills", "catalog"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "skill-memo",
+  "version": "1.0.0",
+  "description": "Claude Codeスキル・MCPサーバーのカタログ+メモツール",
+  "commands": [
+    {
+      "name": "catalog",
+      "description": "インストール済みスキル・MCPサーバーの一覧とメモを表示する",
+      "script": "node bin/skill-memo.js list",
+      "aliases": ["/catalog"]
+    },
+    {
+      "name": "catalog-sync",
+      "description": "settings.json と skills/ を自動検出してカタログを同期する",
+      "script": "node bin/skill-memo.js sync",
+      "aliases": ["/catalog-sync"]
+    },
+    {
+      "name": "catalog-add",
+      "description": "エントリを手動追加する。例: /catalog-add skill nano-banana --memo 画像生成",
+      "script": "node bin/skill-memo.js add",
+      "aliases": ["/catalog-add"],
+      "args": true
+    },
+    {
+      "name": "catalog-memo",
+      "description": "エントリのメモを更新する。例: /catalog-memo mcp:memory ナレッジグラフ管理",
+      "script": "node bin/skill-memo.js memo",
+      "aliases": ["/catalog-memo"],
+      "args": true
+    },
+    {
+      "name": "catalog-remove",
+      "description": "エントリを削除する。例: /catalog-remove skill:old-tool",
+      "script": "node bin/skill-memo.js remove",
+      "aliases": ["/catalog-remove"],
+      "args": true
+    }
+  ],
+  "dataStore": "~/.claude/skill-catalog.json",
+  "permissions": {
+    "read": ["~/.claude/settings.json", "~/.claude/skills/", "~/.claude/skill-catalog.json"],
+    "write": ["~/.claude/skill-catalog.json"]
+  }
+}
