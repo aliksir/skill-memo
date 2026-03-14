@@ -73,6 +73,17 @@ node bin/skill-memo.js path
 - メモ追加・削除など目的が明確な場合は `list` を省略し、直接 `add` / `memo` / `remove` を使う
 - 頻繁に一覧確認が必要な場合は CLI で直接実行する（Claude Code のコンテキストを消費しない）
 
+## Claude Cowork 対応
+
+Claude Cowork（Bashなし環境）でも使える。`skill-memo.md` をスキルとしてインストールすると、ClaudeがRead/Editで `skill-catalog.json` を直接操作する。
+
+```bash
+cp skill-memo/skill-memo.md ~/.claude/commands/skill-memo.md
+```
+
+Cowork では `/skill-memo list`, `/skill-memo add ...`, `/skill-memo memo ...` が動作する。
+`sync`（自動検出）は Glob ベースの簡易版で動作する（CLI版のような settings.json 解析は行わない）。
+
 ## データストア
 
 `~/.claude/skill-catalog.json` に保存される。
