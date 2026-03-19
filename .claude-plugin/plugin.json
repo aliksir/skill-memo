@@ -1,6 +1,6 @@
 {
   "name": "skill-memo",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Claude Codeスキル・MCPサーバーのカタログ+メモツール",
   "commands": [
     {
@@ -34,6 +34,27 @@
       "description": "エントリを削除する。例: /catalog-remove skill:old-tool",
       "script": "node bin/skill-memo.js remove",
       "aliases": ["/catalog-remove"],
+      "args": true
+    },
+    {
+      "name": "catalog-search",
+      "description": "AND検索でエントリを検索する。例: /catalog-search セキュリティ",
+      "script": "node bin/skill-memo.js search",
+      "aliases": ["/catalog-search"],
+      "args": true
+    },
+    {
+      "name": "catalog-tag",
+      "description": "エントリのタグを設定する。例: /catalog-tag mcp:memory security,review",
+      "script": "node bin/skill-memo.js tag",
+      "aliases": ["/catalog-tag"],
+      "args": true
+    },
+    {
+      "name": "catalog-export",
+      "description": "カタログをエクスポートする。例: /catalog-export --format json",
+      "script": "node bin/skill-memo.js export",
+      "aliases": ["/catalog-export"],
       "args": true
     }
   ],
